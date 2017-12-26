@@ -1,0 +1,136 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+var api_key string
+
+func processSummoner(line string) chan string {
+	out := make(chan string)
+	go func() {
+		fields := strings.Split(line, ":")
+
+		type Summoner struct {
+			Name, Id, Days, Hours, Mins, Timestamp, Old_chests, Available_chests string
+		}
+
+		s := Summoner{Name: fields[0], Id: fields[1], Days: fields[2], Hours: fields[3], Mins: fields[4], Timestamp: fields[5], Old_chests: fields[6], Available_chests: fields[7]}
+
+		// query summoner data for current chest count
+		api_query_for_chests := "https://na1.api.riotgames.com/lol/champion-mastery/v3/champion-masteries/by-summoner/" + s.Id + "?api_key=" + api_key
+		req, _ := http.NewRequest("GET", api_query_for_chests, nil)
+		res, _ := http.DefaultClient.Do(req)
+		defer res.Body.Close()
+		body, _ := ioutil.ReadAll(res.Body)
+		var dat []interface{}
+		if err := json.Unmarshal(body, &dat); err != nil {
+			panic(err)
+		}
+		// count the number of champions where chestGranted is true
+		current_chests := 0
+		for _, mapInterface := range dat {
+			m := mapInterface.(map[string]interface{})
+			if m["chestGranted"].(bool) {
+				current_chests++
+			}
+		}
+		old_chests, _ := strconv.Atoi(s.Old_chests)
+		available_chests, _ := strconv.Atoi(s.Available_chests)
+		if old_chests < current_chests { 
+                // a chest has been "consumed" since last checked
+			s.Old_chests = strconv.Itoa(current_chests)
+			available_chests--
+			s.Available_chests = strconv.Itoa(available_chests)
+		}
+
+		// if we haven't hit the chest limit, check if a chest has accrued
+		const CHEST_LIMIT = 4
+		if available_chests < CHEST_LIMIT {
+			// convert to integers
+			days, _ := strconv.Atoi(s.Days)
+			hours, _ := strconv.Atoi(s.Hours)
+			mins, _ := strconv.Atoi(s.Mins)
+			timestamp, _ := strconv.Atoi(s.Timestamp)
+
+			// convert to seconds
+			days = days * 24 * 3600
+			hours = hours * 3600
+			mins = mins * 60
+			next_available_date := timestamp + days + hours + mins
+
+			current_date := time.Now().Unix()
+			if int(current_date) > next_available_date {
+				// chest has accrued
+				s.Timestamp = strconv.Itoa(int(current_date))
+				s.Days = "6"
+				s.Hours = "23"
+				s.Mins = "59"
+				available_chests++
+				s.Available_chests = strconv.Itoa(available_chests)
+			}
+		}
+
+		out <- string(s.Name + ":" + s.Id + ":" + s.Days + ":" + s.Hours + ":" + s.Mins + ":" + s.Timestamp + ":" + s.Old_chests + ":" + s.Available_chests)
+		close(out)
+
+	}()
+	return out
+}
+
+func main() {
+	start := time.Now()
+	// retrieve api key
+	key, err := ioutil.ReadFile(".api_key.txt")
+	if err != nil {
+		panic(err)
+	}
+	api_key = strings.TrimSuffix(string(key), "\n") // trim newline
+
+	// parse lines from lol_data.txt
+	fileContent, err := ioutil.ReadFile("lol_data.txt")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	content := strings.TrimSuffix(string(fileContent), "\n") // trim newline
+	lines := strings.Split(string(content), "\n")
+
+	// check if data needs update
+        // create channels for goroutines
+	channels := make([]chan string, len(lines))
+	for i := range channels {
+		channels[i] = make(chan string)
+	}
+        // send each line of data to a separate goroutine for processing
+	for i, line := range lines {
+		channels[i] = processSummoner(line)
+	}
+
+        // consolidate processed data
+	var contentWrite string
+	for _, line := range channels {
+		contentWrite += fmt.Sprintf("%v\n", <-line)
+	}
+
+        // write to file
+	f, err := os.OpenFile("data.txt", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	if _, err = f.WriteString(contentWrite); err != nil {
+		panic(err)
+	}
+
+        // display duration of script
+	duration := time.Since(start)
+	fmt.Println(duration)
+}
