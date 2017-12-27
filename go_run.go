@@ -14,6 +14,8 @@ import (
 
 var api_key string
 
+// processSummoner() takes a line from lol_data.txt and calls a goroutine to update the available chest count
+// returns the updated line as a chan string type
 func processSummoner(line string) chan string {
 	out := make(chan string)
 	go func() {
@@ -45,8 +47,8 @@ func processSummoner(line string) chan string {
 		}
 		old_chests, _ := strconv.Atoi(s.Old_chests)
 		available_chests, _ := strconv.Atoi(s.Available_chests)
-		if old_chests < current_chests { 
-                // a chest has been "consumed" since last checked
+		if old_chests < current_chests {
+			// a chest has been "consumed" since last checked
 			s.Old_chests = strconv.Itoa(current_chests)
 			available_chests--
 			s.Available_chests = strconv.Itoa(available_chests)
@@ -87,7 +89,6 @@ func processSummoner(line string) chan string {
 }
 
 func main() {
-	start := time.Now()
 	// retrieve api key
 	key, err := ioutil.ReadFile(".api_key.txt")
 	if err != nil {
@@ -104,33 +105,46 @@ func main() {
 	lines := strings.Split(string(content), "\n")
 
 	// check if data needs update
-        // create channels for goroutines
+	// create channels for goroutines
 	channels := make([]chan string, len(lines))
 	for i := range channels {
 		channels[i] = make(chan string)
 	}
-        // send each line of data to a separate goroutine for processing
+	// send each line of data to a separate goroutine for processing
 	for i, line := range lines {
 		channels[i] = processSummoner(line)
 	}
 
-        // consolidate processed data
-	var contentWrite string
+	// create header for each log entry
+	log_header := "------------- Log Start --------------\n"
+	log_header += time.Now().Format(time.RFC822)
+	log_header += "\n"
+	var logWrite string
+	logWrite += log_header
+
+	var dataWrite string
+	// consolidate processed data
 	for _, line := range channels {
-		contentWrite += fmt.Sprintf("%v\n", <-line)
+		l := fmt.Sprintf("%v\n", <-line)
+		dataWrite += l
+		logWrite += l
 	}
 
-        // write to file
-	f, err := os.OpenFile("data.txt", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	// write to lol_data.txt and log.txt
+	data, err := os.OpenFile("lol_data.txt", os.O_WRONLY, 0600)
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
-	if _, err = f.WriteString(contentWrite); err != nil {
+	defer data.Close()
+	if _, err = data.WriteString(dataWrite); err != nil {
 		panic(err)
 	}
-
-        // display duration of script
-	duration := time.Since(start)
-	fmt.Println(duration)
+	log, err := os.OpenFile("log.txt", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	defer log.Close()
+	if _, err = log.WriteString(logWrite); err != nil {
+		panic(err)
+	}
 }
