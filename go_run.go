@@ -14,11 +14,15 @@ import (
 
 var api_key string
 
+// to track if data has changed in the log
+var changed bool = false
+
 // processSummoner() takes a line from lol_data.txt and calls a goroutine to update the available chest count
 // returns the updated line as a chan string type
 func processSummoner(line string) chan string {
 	out := make(chan string)
 	go func() {
+		changed = false
 		fields := strings.Split(line, ":")
 
 		type Summoner struct {
@@ -49,6 +53,7 @@ func processSummoner(line string) chan string {
 		available_chests, _ := strconv.Atoi(s.Available_chests)
 		if old_chests < current_chests {
 			// a chest has been "consumed" since last checked
+			changed = true
 			s.Old_chests = strconv.Itoa(current_chests)
 			available_chests--
 			s.Available_chests = strconv.Itoa(available_chests)
@@ -72,6 +77,7 @@ func processSummoner(line string) chan string {
 			current_date := time.Now().Unix()
 			if int(current_date) > next_available_date {
 				// chest has accrued
+				changed = true
 				s.Timestamp = strconv.Itoa(int(current_date))
 				s.Days = "6"
 				s.Hours = "23"
@@ -118,7 +124,11 @@ func main() {
 	// create header for each log entry
 	log_header := "------------- Log Start --------------\n"
 	log_header += time.Now().Format(time.RFC822)
-	log_header += "\n"
+	if changed {
+		log_header += "   (changed)\n"
+	}else{
+		log_header += "\n"
+	}
 	var logWrite string
 	logWrite += log_header
 
