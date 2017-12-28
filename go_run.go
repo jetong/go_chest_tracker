@@ -22,7 +22,6 @@ var changed bool = false
 func processSummoner(line string) chan string {
 	out := make(chan string)
 	go func() {
-		changed = false
 		fields := strings.Split(line, ":")
 
 		type Summoner struct {
