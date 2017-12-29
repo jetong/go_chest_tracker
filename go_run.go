@@ -14,9 +14,6 @@ import (
 
 var api_key string
 
-// to track if data has changed in the log
-var changed bool = false
-
 // processSummoner() takes a line from lol_data.txt and calls a goroutine to update the available chest count
 // returns the updated line as a chan string type
 func processSummoner(line string) chan string {
@@ -28,7 +25,15 @@ func processSummoner(line string) chan string {
 			Name, Id, Days, Hours, Mins, Timestamp, Old_chests, Available_chests string
 		}
 
-		s := Summoner{Name: fields[0], Id: fields[1], Days: fields[2], Hours: fields[3], Mins: fields[4], Timestamp: fields[5], Old_chests: fields[6], Available_chests: fields[7]}
+		s := Summoner{
+			Name:             fields[0],
+			Id:               fields[1],
+			Days:             fields[2],
+			Hours:            fields[3],
+			Mins:             fields[4],
+			Timestamp:        fields[5],
+			Old_chests:       fields[6],
+			Available_chests: fields[7]}
 
 		// query summoner data for current chest count
 		api_query_for_chests := "https://na1.api.riotgames.com/lol/champion-mastery/v3/champion-masteries/by-summoner/" + s.Id + "?api_key=" + api_key
@@ -52,7 +57,6 @@ func processSummoner(line string) chan string {
 		available_chests, _ := strconv.Atoi(s.Available_chests)
 		if old_chests < current_chests {
 			// a chest has been "consumed" since last checked
-			changed = true
 			s.Old_chests = strconv.Itoa(current_chests)
 			available_chests--
 			s.Available_chests = strconv.Itoa(available_chests)
@@ -76,7 +80,6 @@ func processSummoner(line string) chan string {
 			current_date := time.Now().Unix()
 			if int(current_date) > next_available_date {
 				// chest has accrued
-				changed = true
 				s.Timestamp = strconv.Itoa(int(current_date))
 				s.Days = "6"
 				s.Hours = "23"
@@ -123,11 +126,7 @@ func main() {
 	// create header for each log entry
 	log_header := "------------- Log Start --------------\n"
 	log_header += time.Now().Format(time.RFC822)
-	if changed {
-		log_header += "   (changed)\n"
-	}else{
-		log_header += "\n"
-	}
+
 	var logWrite string
 	logWrite += log_header
 
